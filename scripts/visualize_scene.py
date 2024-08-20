@@ -13,9 +13,8 @@ import time
 parser = argparse.ArgumentParser(description="visulize options")
 
 parser.add_argument('--data_root', type=str, default='isaacgym_simu/data/scene_data')
-parser.add_argument('--data_file', type=str, default='scenes_1.npy')
+parser.add_argument('--data_file', type=str, default='scenes_3.npy')
 parser.add_argument('--save_root', type=str, default='isaacgym_simu/data/visualized_data')
-parser.add_argument('--save_file', type=str, default='scenes_1_.npy')
 parser.add_argument('--save_result', action='store_true')
 parser.add_argument('--device', type=str, default='cuda:0')
 parser.add_argument('--seed', type=int, default=234)
@@ -25,7 +24,6 @@ args = parser.parse_args()
 random.seed(args.seed)
 
 data_file = os.path.join(args.data_root, args.data_file)
-save_file = os.path.join(args.save_root, args.save_file)
 save_result = args.save_result
 
 # acquire gym interface
@@ -66,14 +64,14 @@ obj_code = os.listdir("isaacgym_simu/data/meshdata")
 obj_asset_root = "isaacgym_simu/data/meshdata"
 obj_asset_files = {}
 for code in obj_code:
-    obj_asset_files[code] = code + "/coacd/coacd.urdf"
+    obj_asset_files[code] = code + "/coacd/coacd_simple.urdf"
 
 obj_asset_options = gymapi.AssetOptions()
 obj_asset_options.override_com = True
 obj_asset_options.override_inertia = True
 obj_asset_options.density = 10000
-obj_asset_options.max_angular_velocity = 0.01
-obj_asset_options.max_linear_velocity = 0.01
+obj_asset_options.max_angular_velocity = 0.1
+obj_asset_options.max_linear_velocity = 0.1
 
 # options for loading table asset
 table_size = gymapi.Vec3(1.,1.,0.5)
@@ -113,6 +111,7 @@ def _create_sim():
     return sim,viewer,obj_assets_all,table_asset
 
 data_dict = np.load(data_file,allow_pickle=True)
+# data_dict = data_dict[:50]
 
 scene_num = len(data_dict)
 
@@ -202,7 +201,7 @@ def check_state(state):
     flag_a = ax**2+ay**2+az**2 < 0.1
     return flag_p and flag_v and flag_a,[x,y,z,rx,ry,rz,rw]
 
-save_lst = []
+save_dict = {}
 start_time = time.time()
 flag = [False for i in range(20)]
 
@@ -217,14 +216,14 @@ while not gym.query_viewer_has_closed(viewer):
             for i in range(len(data_dict[idx]['code_list'])):
                 handle = obj_handles[cnt]
                 cnt += 1
-                state = gym.get_actor_rigid_body_states(env, handle, gymapi.STATE_ALL)
-                state['vel']['linear']['x']=0
-                state['vel']['linear']['y']=0
-                state['vel']['linear']['z']=0
-                state['vel']['angular']['x']=0
-                state['vel']['angular']['y']=0
-                state['vel']['angular']['z']=0
-                gym.set_actor_rigid_body_states(env, handle, state, gymapi.STATE_ALL)                
+                # state = gym.get_actor_rigid_body_states(env, handle, gymapi.STATE_ALL)
+                # state['vel']['linear']['x']=0
+                # state['vel']['linear']['y']=0
+                # state['vel']['linear']['z']=0
+                # state['vel']['angular']['x']=0
+                # state['vel']['angular']['y']=0
+                # state['vel']['angular']['z']=0
+                # gym.set_actor_rigid_body_states(env, handle, state, gymapi.STATE_ALL)                
     gym.simulate(sim)
     gym.fetch_results(sim, True)
     gym.refresh_rigid_body_state_tensor(sim)
@@ -250,9 +249,13 @@ while not gym.query_viewer_has_closed(viewer):
                     _,env_index,_,indice_in_env,code = name.split('_')
                     result_dict['code_list'].append(code)
                     result_dict[code]=pose_list
-            print(result_dict['code_list'])
-            if len(result_dict['code_list'])>7:
-                save_lst.append(result_dict)
+            # print(result_dict['code_list'])
+            obj_num = len(result_dict['code_list'])
+            if obj_num>7:
+                if obj_num not in save_dict.keys():
+                    save_dict[obj_num] = []
+                else:
+                    save_dict[obj_num].append(result_dict)
         if save_result:
             time.sleep(3)
             assert cnt == len(obj_handles)
@@ -262,5 +265,12 @@ gym.destroy_viewer(viewer)
 gym.destroy_sim(sim)
 
 if save_result:
-    np.save(save_file,save_lst,allow_pickle=True)
+    for obj_num in save_dict.keys():
+        save_file = os.path.join(args.save_root,f"scenes_{obj_num}.npy")
+        if not os.path.exists(save_file):
+            np.save(save_file,save_dict[obj_num])
+        else:
+            scene_list = np.load(save_file,allow_pickle=True)
+            scene_list += save_dict[obj_num]
+            np.save(save_file,scene_list)
 

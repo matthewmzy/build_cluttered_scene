@@ -10,9 +10,8 @@ parser = argparse.ArgumentParser(description='build scene options')
 
 parser.add_argument('--gui', action='store_false')
 parser.add_argument('--result_path', type=str, default="isaacgym_simu/data/scene_data")
-parser.add_argument('--result_file', type=str, default="scenes_2.npy")
+parser.add_argument('--result_file', type=str, default="scenes_3.npy")
 parser.add_argument('--mesh_path', type=str, default="isaacgym_simu/data/meshdata")
-parser.add_argument('--grasp_path', type=str, default="isaacgym_simu/data/dataset")
 parser.add_argument('--total_batch', type=int, default=192)
 parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--dense', action='store_true')
@@ -57,37 +56,23 @@ plane_params.restitution = 0
 
 # get all object codes
 obj_code = os.listdir(args.mesh_path)
-bad_code = [
-    'graspnet-029',
-    'graspnet-031',
-    'graspnet-033',
-    'graspnet-045',
-    'graspnet-046',
-    'graspnet-054',
-    'graspnet-072',
-    'graspnet-074',
-    'graspnet-076',
-    'graspnet-078',
-    'graspnet-087']
-for bad in bad_code:
-    obj_code.remove(bad)
-
-# get all object grasp dicts
-grasp_dict_dict = {}
-for code in obj_code:
-    grasp_dict_dict[code]=np.load(os.path.join(args.grasp_path,code+'.npy'),allow_pickle=True)
+bad_code = ['graspnet-027',
+            'graspnet-018',
+            'graspnet-043']
+for code in bad_code:
+    obj_code.remove(code)
 
 # options for loading 8 object assets
 obj_asset_root = args.mesh_path
-obj_asset_files = [f"{code}/coacd/coacd.urdf" for code in obj_code]
+obj_asset_files = [f"{code}/coacd/coacd_simple.urdf" for code in obj_code]
 
 obj_asset_options = gymapi.AssetOptions()
 obj_asset_options.override_com = True
 obj_asset_options.override_inertia = True
-obj_asset_options.density = 10000
+# obj_asset_options.density = 10000
 # obj_asset_options.vhacd_enabled = True
-obj_asset_options.max_angular_velocity = 0.5
-obj_asset_options.max_linear_velocity = 10
+obj_asset_options.max_angular_velocity = 0.2
+obj_asset_options.max_linear_velocity = 2
 
 # options for loading hand asset
 hand_asset_root = "isaacgym_simu/open_ai_assets"
@@ -104,9 +89,9 @@ table_asset_options = gymapi.AssetOptions()
 table_asset_options.fix_base_link = True
 
 # options for loading assisting box boundary
-w = table_size.x / 4 
+w = table_size.x / 4.5
 t = w/3 if args.dense else w/4
-h = 1.5
+h = 1.
 bound_asset_options = gymapi.AssetOptions()
 bound_asset_options.fix_base_link = True
 
@@ -118,7 +103,7 @@ spacing = 0.8
 env_lower = gymapi.Vec3(-spacing, -spacing, 0.0)
 env_upper = gymapi.Vec3(spacing, spacing, 4* spacing)
 safe_gap = 0.25
-sample_num = 15
+sample_num = 10
 
 # define how many objects are reasonable in a scene and unzip pose
 def check_state(state):
@@ -137,8 +122,8 @@ def check_state(state):
     az = state['vel']['angular']['z']
     flag_p = (x>-table_size.x*2/3) and (x<table_size.x*2/3) and (y>-table_size.y*2/3) \
         and (y<table_size.y*2/3) and (z>table_size.z) and (z<table_size.z*2)
-    flag_v = vx**2+vy**2+vz**2 < 0.01
-    flag_a = ax**2+ay**2+az**2 < 0.2
+    flag_v = vx**2+vy**2+vz**2 < 0.5
+    flag_a = ax**2+ay**2+az**2 < 8
     return flag_p and flag_v and flag_a,[x,y,z,rx,ry,rz,rw]
     
 
@@ -194,12 +179,8 @@ for batch in range(total_batch//batch_size):
     # add a batch of envs
     for index in range(offset, offset_):
 
-        # randomly sample 8 objects for scene building and one object for grasping
         scene_objs_idx = random.sample(range(len(obj_code)),k=sample_num)
         scene_objs_code = [obj_code[idx]for idx in scene_objs_idx]
-        grasp_obj_idx = random.choice(scene_objs_idx)
-        grasp_obj_code = obj_code[grasp_obj_idx]
-        grasp_dict = grasp_dict_dict[grasp_obj_code]
 
         obj_assets = [obj_assets_all[idx]for idx in scene_objs_idx]
         
@@ -233,7 +214,7 @@ for batch in range(total_batch//batch_size):
         # add actor(all objects)
         pose = gymapi.Transform()
         for idx in range(sample_num):
-            pose.p = gymapi.Vec3(0, 0, 100 + table_size.z+(2+idx)*safe_gap)
+            pose.p = gymapi.Vec3(20, 20, table_size.z+(2+idx)*safe_gap)
             pose.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), np.random.uniform(-math.pi, math.pi))
             obj_handle = gym.create_actor(env, obj_assets[idx], pose, f"env_{index}_obj_{idx}_{scene_objs_code[idx][-3:]}", index, 0)
             color = gymapi.Vec3(np.random.uniform(0, 1), np.random.uniform(0, 1), np.random.uniform(0, 1))
@@ -293,10 +274,10 @@ for batch in range(total_batch//batch_size):
                 state = gym.get_actor_rigid_body_states(env, handle, gymapi.STATE_ALL)
                 state['pose']['p']['x']=random.uniform(-table_size.x/p,table_size.x/p)
                 state['pose']['p']['y']=random.uniform(-table_size.y/p,table_size.y/p)
-                state['pose']['p']['z']=table_size.z+0.5
+                state['pose']['p']['z']=table_size.z+0.4
                 state['vel']['linear']['x']=0
                 state['vel']['linear']['y']=0
-                state['vel']['linear']['z']=-0.02
+                state['vel']['linear']['z']=0
                 state['vel']['angular']['x']=0
                 state['vel']['angular']['y']=0
                 state['vel']['angular']['z']=0                
@@ -336,12 +317,12 @@ for batch in range(total_batch//batch_size):
     print(f"batch {batch+1} Done")
     if args.gui:
         print("viewer is closing")
-        time.sleep(5)
+        # time.sleep(5)
 
     gym.destroy_viewer(viewer)
     gym.destroy_sim(sim)
 
     offset = offset_
-    
+
 np.save(os.path.join(args.result_path,args.result_file),save_lst,allow_pickle=True)
 
